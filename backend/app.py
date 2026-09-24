@@ -356,9 +356,11 @@ app.add_middleware(
 @app.middleware('http')
 async def check_origin(request: Request, call_next):
     if request.method in {'POST', 'PUT', 'PATCH', 'DELETE'}:
-        allowed = os.getenv('APP_ORIGIN', 'http://localhost:5173,http://127.0.0.1:5173').split(',')
+        allowed = [item.strip() for item in os.getenv(
+            'APP_ORIGIN', 'http://localhost:5173,http://127.0.0.1:5173'
+        ).split(',')]
         origin = request.headers.get('origin')
-        if (origin and origin not in allowed) or request.headers.get('sec-fetch-site') == 'cross-site':
+        if origin and origin not in allowed:
             from fastapi.responses import JSONResponse
             return JSONResponse(status_code=403, content={'detail': 'Request origin is not allowed'})
     return await call_next(request)
