@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: edumerge-api
+    runtime: python
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /docs
+    envVars:
+      - key: COOKIE_SECURE
+        value: "1"
+      - key: SEED_DEMO
+        value: "1"

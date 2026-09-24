@@ -1,0 +1,13 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: edumerge
+      POSTGRES_PASSWORD: edumerge_local
+      POSTGRES_DB: edumerge
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - edumerge_data:/var/lib/postgresql/data
+volumes:
+  edumerge_data:
