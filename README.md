@@ -2,6 +2,17 @@
 
 Student support and ticket management prototype for the Edumerge product-engineering assessment.
 
+**Live demo:** [edumerge-assessment.netlify.app](https://edumerge-assessment.netlify.app/)  
+
+
+## What it solves
+
+Students can raise campus-support requests without repeatedly explaining the same details. The system routes each category to the right department, gives staff clear ownership, and gives managers visibility into ageing work and SLA risk.
+
+- Students submit attendance, fee, ID-card, and certificate requests; track updates; and reply to staff.
+- Staff see their department queue, claim work, add public replies or internal notes, request information, and resolve tickets.
+- Managers monitor SLA pressure and workload, reassign staff, change priority, and acknowledge escalations.
+
 ## Run locally
 
 Python 3.11+ and Node 22.12+ recommended. From the repository root:
@@ -77,7 +88,7 @@ New students can use **Create an account**, then sign in with their own email an
 
 Students can also use **Continue with Google**. The browser sends Google’s ID token to FastAPI, which verifies it and creates or signs in a student account. The configured local Google OAuth client accepts `http://localhost:5173` and uses Google Identity Services; staff and manager identities cannot use this route. For a different Google project, set `GOOGLE_CLIENT_ID` before starting the backend. A client secret is not used or stored by this sign-in method.
 
-The sidebar includes **My profile** and **Switch account / sign out**. Staff can claim unassigned tickets directly in the queue or in ticket details, and view the requesting student's profile. Student profiles expose only basic account information; the request list respects the viewing staff member's department. Back buttons return from forms, profiles, ticket details, and My Tickets.
+The sidebar includes **My profile** and a sign-out control. Staff can claim unassigned tickets directly in the queue or in ticket details, and view the requesting student's profile. Student profiles expose only basic account information; the request list respects the viewing staff member's department. Back buttons return from forms, profiles, ticket details, and My Tickets.
 
 New requests use category-specific intake fields. Attendance collects the roll number, class/section, subject, affected date, session, and expected correction. Certificate, fee, and ID-card requests collect their own relevant details. Conditional fields appear only when needed—for example, payment references for payment-related fee issues and correction details for an incorrect ID card. The backend validates these rules and stores the answers as structured ticket intake data for the staff view.
 
@@ -100,15 +111,62 @@ npx playwright test
 
 Playwright requires the local servers above and uses installed Microsoft Edge via its `msedge` channel. API tests use isolated temporary databases, including an actual competing claim test.
 
-## Architecture and boundaries
+## System architecture
 
-React/TypeScript → FastAPI → SQLAlchemy → relational database. Opaque session tokens are stored hashed in the database and sent through HttpOnly, SameSite cookies. Sessions expire after 12 hours and are revoked on logout. Mutating browser requests validate their origin. Passwords use salted scrypt hashes. Database writes for ticket state and history commit together; conditional updates prevent double claims.
+```mermaid
+flowchart LR
+  U[Student / Staff / Manager] --> F[React + TypeScript frontend]
+  F -->|HTTPS API requests| A[FastAPI application]
+  A --> R[Role and permission checks]
+  R --> W[Ticket workflow and SLA rules]
+  W --> D[(SQLite locally / PostgreSQL in production)]
+  W --> N[Escalations and notifications]
+  G[Google Identity Services] -->|Verified ID token| A
+```
 
-Students see their own tickets. Staff see their department and must claim a request before taking staff actions. Managers see all tickets, can reassign eligible staff, update a priority, and acknowledge escalation records, but cannot claim work. Categories determine departments on the server.
+The React frontend manages role-specific screens and calls the FastAPI API. FastAPI owns authentication, permission checks, ticket lifecycle rules, SLA calculations, and validation. SQLAlchemy persists users, sessions, tickets, intake answers, comments, SLA cycles, escalations, and notifications.
 
-SLA targets are 24 hours for attendance and fee queries, and 48 hours for ID-card and certificate requests. The SLA clock pauses while a request waits for the student and resumes on a student reply. At 70% of the active time it is shown as at risk. An in-process worker checks every minute and creates manager alerts for unclaimed requests after two hours and for overdue requests. This is suitable for a local demo; production should use a separate durable scheduler.
+## System design
 
-For HTTPS deployment, set `COOKIE_SECURE=1` and `APP_ORIGIN` to the exact frontend origin. Production hardening (login rate limiting, migrations, deployment configuration, pagination) remains ahead. Demo seeding defaults on for local evaluation; use `SEED_DEMO=0` outside demo environments.
+### Access and ownership
+
+| Role | Access |
+|---|---|
+| Student | Own tickets, public conversation, profile, and new requests |
+| Staff | Tickets in their department; must claim a ticket before staff actions |
+| Manager | Campus-wide visibility, reassignment, priority, escalation acknowledgement, and reports |
+
+Categories determine the department on the server. The backend, rather than the UI, enforces visibility and validates category-specific information. Ticket claiming uses a conditional database update so two staff members cannot successfully claim the same request.
+
+### Ticket lifecycle
+
+```mermaid
+stateDiagram-v2
+  [*] --> Open: Student submits request
+  Open --> InProgress: Staff claims / Manager assigns
+  InProgress --> WaitingForStudent: Staff requests information
+  WaitingForStudent --> InProgress: Student replies
+  InProgress --> Resolved: Staff adds resolution note
+  Resolved --> InProgress: Student reopens with reason
+```
+
+Public messages are visible to students. Internal notes are filtered by the backend and are only visible to staff and managers. Reopening keeps the request history and owner but starts a fresh SLA cycle.
+
+### SLA and escalation
+
+Attendance and fee requests have a 24-hour target. ID-card and certificate requests have a 48-hour target. A ticket becomes at risk when 70% of its active SLA time is used. The clock pauses while it is waiting for a student response and resumes after the reply.
+
+An in-process worker checks active tickets every minute. It creates a manager notification when a request remains unclaimed for more than two hours or passes its SLA deadline. Unique ticket, cycle, and escalation records prevent repeated alerts. This is suitable for a local/demo deployment; production should use a durable scheduler.
+
+### Deployment
+
+The live demo uses Netlify for the React frontend and a hosted FastAPI API. The frontend API base URL is injected at build time through `VITE_API_BASE`. The backend permits the configured Netlify origin through `APP_ORIGIN` and uses secure cross-site session cookies in HTTPS deployment.
+
+## Security and production boundaries
+
+Opaque session tokens are stored hashed in the database and sent through HttpOnly cookies. Sessions expire after 12 hours and are revoked on logout. Passwords use salted scrypt hashes. Mutating requests are checked against the configured frontend origin.
+
+For HTTPS deployment, set `COOKIE_SECURE=1` and `APP_ORIGIN` to the exact frontend origin. Production hardening such as rate limiting, database migrations, pagination, a durable SLA worker, and persistent PostgreSQL storage remains ahead. Demo seeding defaults on for local evaluation; use `SEED_DEMO=0` outside demo environments.
 
 ## Scope deliberately deferred
 
